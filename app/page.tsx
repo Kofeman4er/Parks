@@ -7,7 +7,7 @@ import HomePage from "@/components/HomePage";
 import TrailDirectory from "@/components/TrailDirectory";
 import Alerts from "@/components/Alerts";
 import About from "@/components/About";
-
+import ClosureList from "@/components/ClosureList"; // ✅ Import the new component
 import type { Park } from "@/types/park";
 import dynamic from "next/dynamic";
 
@@ -15,9 +15,11 @@ const TrailMap = dynamic(() => import("@/components/TrailMap"), {
   ssr: false,
 });
 
-
 export default function Page() {
-  const [view, setView] = useState<"home" | "trails" | "map" | "alerts" | "about">("home");
+  const [view, setView] = useState<
+    "home" | "trails" | "map" | "alerts" | "about" | "closures"
+  >("home");
+
   const [parks, setParks] = useState<Park[]>([]);
   const [selectedPark, setSelectedPark] = useState<Park | null>(null);
 
@@ -29,6 +31,7 @@ export default function Page() {
         const raw = await res.json();
 
         if (!Array.isArray(raw)) return;
+
         type RawPark = {
           id?: string;
           official_name?: string;
@@ -82,6 +85,7 @@ export default function Page() {
         />
       )}
       {view === "alerts" && <Alerts />}
+      {view === "closures" && <ClosureList />} {/* ✅ New view rendering */}
       {view === "about" && <About />}
       <Footer />
     </main>
