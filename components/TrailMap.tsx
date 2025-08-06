@@ -38,7 +38,7 @@ export default function TrailMap({ parks, selected, onSelect }: Props) {
 
   useEffect(() => {
     const term = searchTerm.toLowerCase();
-    let filtered = parks.filter((p) => {
+    const filtered = parks.filter((p) => {
       const matchesSearch =
         p.textCommonName?.toLowerCase().includes(term) ||
         p.textOfficialName?.toLowerCase().includes(term);

@@ -5,11 +5,10 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import HomePage from "@/components/HomePage";
 import TrailDirectory from "@/components/TrailDirectory";
-//import TrailMap from "@/components/TrailMap";
 import Alerts from "@/components/Alerts";
 import About from "@/components/About";
-import type { Park } from "@/components/TrailDirectory";
-//import type { Park } from "@/types/park";
+
+import type { Park } from "@/types/park";
 import dynamic from "next/dynamic";
 
 const TrailMap = dynamic(() => import("@/components/TrailMap"), {
@@ -30,8 +29,20 @@ export default function Page() {
         const raw = await res.json();
 
         if (!Array.isArray(raw)) return;
+        type RawPark = {
+          id?: string;
+          official_name?: string;
+          common_name?: string;
+          status?: string;
+          type?: string;
+          class?: string;
+          address?: string;
+          area?: string | number;
+          longitude?: string | number;
+          latitude?: string | number;
+        };
 
-        const parsed: Park[] = raw.map((item: any, index: number) => ({
+        const parsed: Park[] = (raw as RawPark[]).map((item, index) => ({
           numberID: item.id && !isNaN(Number(item.id)) ? Number(item.id) : index,
           textOfficialName: item.official_name || "",
           textCommonName: item.common_name || "",

@@ -3,8 +3,6 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 
-const InlineMap = dynamic(() => import("./TrailMap"), { ssr: false });
-
 // Geolocation coordinates type
 type Coordinates = {
   latitude: number;
@@ -47,19 +45,34 @@ export default function TrailDirectory({ onNavigate, onSelectPark }: Props) {
         const raw = await res.json();
 
         if (!Array.isArray(raw)) return;
+        type RawPark = {
+            id?: string;
+            official_name?: string;
+            common_name?: string;
+            status?: string;
+            type?: string;
+            class?: string;
+            address?: string;
+            area?: string | number;
+            longitude?: string | number;
+            latitude?: string | number;
+          };
 
-        const parsed: Park[] = raw.map((item: any, index: number) => ({
-          numberID: item.id && !isNaN(Number(item.id)) ? Number(item.id) : index,
-          textOfficialName: item.official_name || "",
-          textCommonName: item.common_name || "",
-          textStatus: item.status?.toLowerCase() || "",
-          textType: item.type || "",
-          textClass: item.class || "",
-          textAddress: item.address || "",
-          numberArea: Number(item.area || 0),
-          numberLongitude: Number(item.longitude || 0),
-          numberLatitude: Number(item.latitude || 0),
-        }));
+          const parsed: Park[] = (raw as RawPark[]).map((item, index) => {
+            const id = item.id && !isNaN(Number(item.id)) ? Number(item.id) : index;
+            return {
+              numberID: id,
+              textOfficialName: item.official_name || "",
+              textCommonName: item.common_name || "",
+              textStatus: item.status?.toLowerCase() || "",
+              textType: item.type || "",
+              textClass: item.class || "",
+              textAddress: item.address || "",
+              numberArea: Number(item.area || 0),
+              numberLongitude: Number(item.longitude || 0),
+              numberLatitude: Number(item.latitude || 0),
+            };
+          });
 
         setParks(parsed);
         setFiltered(parsed);
