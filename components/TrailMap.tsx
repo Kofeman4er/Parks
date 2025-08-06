@@ -83,9 +83,8 @@ export default function TrailMap({ parks, selected, onSelect }: Props) {
     <div className="flex h-[calc(100vh-64px)] relative">
       {/* Sidebar */}
       <aside
-        className={`transition-all duration-300 bg-gray-50 border-r overflow-y-auto relative ${
-          sidebarOpen ? "w-80 p-4" : "w-12"
-        }`}
+        className={`transition-all duration-300 bg-gray-50 border-r overflow-y-auto relative ${sidebarOpen ? "w-80 p-4" : "w-12"
+          }`}
       >
         {/* Toggle Button */}
         <button
@@ -143,11 +142,10 @@ export default function TrailMap({ parks, selected, onSelect }: Props) {
                 <li
                   key={`${park.textOfficialName}-${i}`}
                   onClick={() => onSelect?.(park)}
-                  className={`cursor-pointer p-2 rounded text-sm hover:bg-blue-100 ${
-                    selected?.numberID === park.numberID
+                  className={`cursor-pointer p-2 rounded text-sm hover:bg-blue-100 ${selected?.numberID === park.numberID
                       ? "bg-blue-200 font-semibold"
                       : ""
-                  }`}
+                    }`}
                 >
                   {park.textCommonName || park.textOfficialName}
                 </li>
@@ -184,6 +182,11 @@ export default function TrailMap({ parks, selected, onSelect }: Props) {
                 key={`${park.textOfficialName}-${i}`}
                 position={[park.numberLatitude, park.numberLongitude]}
                 icon={icon}
+                eventHandlers={{
+                  click: () => {
+                    onSelect?.(park);
+                  },
+                }}
               >
                 {isSelected && (
                   <Popup autoPan>
@@ -195,10 +198,6 @@ export default function TrailMap({ parks, selected, onSelect }: Props) {
                       {park.textAddress}
                       <br />
                       Class: {park.textClass}
-                      <br />
-                      <button className="mt-1 text-blue-600 underline text-xs">
-                        More
-                      </button>
                     </div>
                   </Popup>
                 )}
