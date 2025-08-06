@@ -5,15 +5,17 @@ import {
   TileLayer,
   Marker,
   Popup,
+  useMap,
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { useEffect, useState } from "react";
 import type { Park } from "@/types/park";
+import { FaChevronLeft, FaChevronRight } from "react-icons/fa";
 
-// Neutral icon setup
+// Neutral green marker icon setup
 const defaultIconUrl =
-  "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-grey.png";
+  "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png";
 
 type Props = {
   parks: Park[];
@@ -21,12 +23,29 @@ type Props = {
   onSelect?: (park: Park) => void;
 };
 
+function FlyToPark({ park }: { park: Park | null }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (park) {
+      map.flyTo([park.numberLatitude, park.numberLongitude], 14, {
+        duration: 1.2,
+      });
+    }
+  }, [park, map]);
+
+  return null;
+}
+
 export default function TrailMap({ parks, selected, onSelect }: Props) {
-  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+  const [userLocation, setUserLocation] = useState<[number, number] | null>(
+    null
+  );
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState(false);
   const [classFilter, setClassFilter] = useState("");
   const [filteredParks, setFilteredParks] = useState<Park[]>([]);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
     if (navigator.geolocation) {
@@ -43,9 +62,7 @@ export default function TrailMap({ parks, selected, onSelect }: Props) {
         p.textCommonName?.toLowerCase().includes(term) ||
         p.textOfficialName?.toLowerCase().includes(term);
       const matchesStatus = statusFilter ? p.textStatus === "active" : true;
-      const matchesClass = classFilter
-        ? p.textClass === classFilter
-        : true;
+      const matchesClass = classFilter ? p.textClass === classFilter : true;
       return matchesSearch && matchesStatus && matchesClass;
     });
 
@@ -63,64 +80,81 @@ export default function TrailMap({ parks, selected, onSelect }: Props) {
   );
 
   return (
-    <div className="flex h-[calc(100vh-64px)]">
+    <div className="flex h-[calc(100vh-64px)] relative">
       {/* Sidebar */}
-      <aside className="w-80 p-4 border-r overflow-y-auto bg-gray-50">
-        <h2 className="text-lg font-semibold mb-2">Filters</h2>
-        <input
-          type="text"
-          placeholder="Search parks..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full mb-2 p-2 border rounded text-sm"
-        />
-        <label className="flex items-center gap-2 mb-2 text-sm">
-          <input
-            type="checkbox"
-            checked={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.checked)}
-          />
-          Only Active
-        </label>
-        <select
-          value={classFilter}
-          onChange={(e) => setClassFilter(e.target.value)}
-          className="w-full mb-2 p-2 border rounded text-sm"
-        >
-          <option value="">All Classes</option>
-          {uniqueClasses.map((cls) => (
-            <option key={cls} value={cls}>
-              {cls}
-            </option>
-          ))}
-        </select>
+      <aside
+        className={`transition-all duration-300 bg-gray-50 border-r overflow-y-auto relative ${
+          sidebarOpen ? "w-80 p-4" : "w-12"
+        }`}
+      >
+        {/* Toggle Button */}
         <button
-          className="w-full p-2 text-sm border rounded bg-white hover:bg-gray-100 mb-4"
-          onClick={() => {
-            setSearchTerm("");
-            setStatusFilter(false);
-            setClassFilter("");
-          }}
+          onClick={() => setSidebarOpen((prev) => !prev)}
+          className="absolute top-2 right-2 z-10 bg-white border rounded p-1 shadow text-sm hover:bg-gray-100"
+          title={sidebarOpen ? "Collapse" : "Expand"}
         >
-          Reset Filters
+          {sidebarOpen ? <FaChevronLeft /> : <FaChevronRight />}
         </button>
 
-        <h2 className="text-lg font-semibold mb-2">Parks</h2>
-        <ul className="space-y-1">
-          {filteredParks.map((park, i) => (
-            <li
-              key={`${park.textOfficialName}-${i}`}
-              onClick={() => onSelect?.(park)}
-              className={`cursor-pointer p-2 rounded text-sm hover:bg-blue-100 ${
-                selected?.numberID === park.numberID
-                  ? "bg-blue-200 font-semibold"
-                  : ""
-              }`}
+        {sidebarOpen && (
+          <>
+            <h2 className="text-lg font-semibold mb-2">Filters</h2>
+            <input
+              type="text"
+              placeholder="Search parks..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full mb-2 p-2 border rounded text-sm"
+            />
+            <label className="flex items-center gap-2 mb-2 text-sm">
+              <input
+                type="checkbox"
+                checked={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.checked)}
+              />
+              Only Active
+            </label>
+            <select
+              value={classFilter}
+              onChange={(e) => setClassFilter(e.target.value)}
+              className="w-full mb-2 p-2 border rounded text-sm"
             >
-              {park.textCommonName || park.textOfficialName}
-            </li>
-          ))}
-        </ul>
+              <option value="">All Classes</option>
+              {uniqueClasses.map((cls) => (
+                <option key={cls} value={cls}>
+                  {cls}
+                </option>
+              ))}
+            </select>
+            <button
+              className="w-full p-2 text-sm border rounded bg-white hover:bg-gray-100 mb-4"
+              onClick={() => {
+                setSearchTerm("");
+                setStatusFilter(false);
+                setClassFilter("");
+              }}
+            >
+              Reset Filters
+            </button>
+
+            <h2 className="text-lg font-semibold mb-2">Parks</h2>
+            <ul className="space-y-1">
+              {filteredParks.map((park, i) => (
+                <li
+                  key={`${park.textOfficialName}-${i}`}
+                  onClick={() => onSelect?.(park)}
+                  className={`cursor-pointer p-2 rounded text-sm hover:bg-blue-100 ${
+                    selected?.numberID === park.numberID
+                      ? "bg-blue-200 font-semibold"
+                      : ""
+                  }`}
+                >
+                  {park.textCommonName || park.textOfficialName}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
       </aside>
 
       {/* Map */}
@@ -151,17 +185,23 @@ export default function TrailMap({ parks, selected, onSelect }: Props) {
                 position={[park.numberLatitude, park.numberLongitude]}
                 icon={icon}
               >
-                <Popup autoPan>
-                  <div className="text-sm">
-                    <strong>
-                      {park.textCommonName || park.textOfficialName}
-                    </strong>
-                    <br />
-                    {park.textAddress}
-                    <br />
-                    Class: {park.textClass}
-                  </div>
-                </Popup>
+                {isSelected && (
+                  <Popup autoPan>
+                    <div className="text-sm">
+                      <strong>
+                        {park.textCommonName || park.textOfficialName}
+                      </strong>
+                      <br />
+                      {park.textAddress}
+                      <br />
+                      Class: {park.textClass}
+                      <br />
+                      <button className="mt-1 text-blue-600 underline text-xs">
+                        More
+                      </button>
+                    </div>
+                  </Popup>
+                )}
               </Marker>
             );
           })}
@@ -171,6 +211,8 @@ export default function TrailMap({ parks, selected, onSelect }: Props) {
               <Popup>You are here</Popup>
             </Marker>
           )}
+
+          <FlyToPark park={selected ?? null} />
         </MapContainer>
       </div>
     </div>
