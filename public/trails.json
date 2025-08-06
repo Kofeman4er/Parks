@@ -1,0 +1,19 @@
+[
+    {
+      "id": 1,
+      "name": "Whitemud Creek Trail",
+      "description": "A scenic wooded trail running along Whitemud Creek.",
+      "distance": 5.4,
+      "difficulty": "moderate",
+      "tags": ["scenic", "moderate", "bike-friendly"]
+    },
+    {
+      "id": 2,
+      "name": "Mill Creek Ravine",
+      "description": "Popular among dog walkers and cyclists.",
+      "distance": 3.2,
+      "difficulty": "easy",
+      "tags": ["easy", "dog park", "loop"]
+    }
+  ]
+  
