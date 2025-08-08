@@ -347,7 +347,7 @@ export default function ClosureList() {
           {kind === "trail" ? (
             <iframe
               allow="geolocation"
-              src="https://data.edmonton.ca/dataset/River-Valley-Trail-Cautions-and-Closures-Map/2kvx-xvgm/embed?width=800&height=600"
+              src="https://data.edmonton.ca/dataset/River-Valley-Trail-Cautions-and-Closures-Map/2kvx-xvgm/embed?width=full&height=600"
               width="100%"
               style={{
                 border: 0,
@@ -359,7 +359,7 @@ export default function ClosureList() {
           ) : (
             <iframe
               allow="geolocation"
-              src="https://data.edmonton.ca/dataset/Traffic-Disruptions-Map/mhbf-f3zb/embed?width=800&height=600"
+              src="https://data.edmonton.ca/dataset/Traffic-Disruptions-Map/mhbf-f3zb/embed?width=full&height=600"
               width="100%"
               style={{
                 border: 0,
