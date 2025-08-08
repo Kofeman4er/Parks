@@ -10,14 +10,26 @@ import {
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
+import type { GeoJsonObject } from "geojson";
 
+// ---------- Types ----------
 type DatasetKind = "trail" | "traffic";
 type ViewMode = "map" | "list";
 
-type TrailRow = {
-  activity_type?: string;
-  type_of_closure?: string;
-  details?: string;
+type GeometryLike = GeoJsonObject | string | null | undefined;
+
+type PointLike =
+  | string
+  | {
+      type?: string;
+      coordinates?: [number, number];
+      latitude?: number | string;
+      longitude?: number | string;
+    }
+  | null
+  | undefined;
+
+interface BaseRow {
   infrastructure?: string;
   location_name?: string;
   start_date?: string;
@@ -25,29 +37,27 @@ type TrailRow = {
   duration?: string;
   latitude?: string;
   longitude?: string;
-  geometry?: any;
-  the_geom?: any;
-  [k: string]: any;
-};
+  geometry?: GeometryLike;
+  the_geom?: GeometryLike;
+}
 
-type TrafficRow = {
+interface TrailRow extends BaseRow {
+  activity_type?: string;
+  type_of_closure?: string;
+  details?: string;
+  // image_url exists but we render a map instead
+  image_url?: string;
+}
+
+interface TrafficRow extends BaseRow {
   status?: string; // Current / REVISED
   description?: string;
   activity_type?: string;
   type_of_closure?: string;
-  infrastructure?: string;
-  location_name?: string;
-  start_date?: string;
-  end_date?: string;
-  duration?: string;
-  latitude?: string;
-  longitude?: string;
-  point?: any;       // <-- can be string or object
-  geometry?: any;
-  the_geom?: any;
-  [k: string]: any;
-};
+  point?: PointLike; // can be string or object shapes
+}
 
+// ---------- Constants ----------
 const TRAIL_URL =
   "https://data.edmonton.ca/resource/k4mi-dkvi.json?$limit=500";
 
@@ -57,6 +67,7 @@ const TRAFFIC_URL =
 const NEIGHBOURHOODS_URL = "https://data.edmonton.ca/resource/3did-mjnj.json";
 const NO_LOC = "N/A";
 
+// Leaflet green pin
 const markerIcon = new L.Icon({
   iconUrl:
     "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png",
@@ -64,43 +75,45 @@ const markerIcon = new L.Icon({
   iconAnchor: [12, 41],
 });
 
-function formatStart(raw?: string) {
+// ---------- Helpers ----------
+function formatStart(raw?: string): string {
   if (!raw) return "N/A";
   const d = new Date(raw);
-  if (isNaN(d.getTime())) return "N/A";
+  if (Number.isNaN(d.getTime())) return "N/A";
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${yyyy}/${mm}/${dd}`;
 }
 
-function FitToGeometry({ geom }: { geom: GeoJSON.GeoJsonObject }) {
+function FitToGeometry({ geom }: { geom: GeoJsonObject }) {
   const map = useMap();
   useEffect(() => {
     if (!geom) return;
     try {
       const layer = L.geoJSON(geom);
-      const b = layer.getBounds();
-      if (b.isValid()) map.fitBounds(b, { padding: [8, 8] });
+      const bounds = layer.getBounds();
+      if (bounds.isValid()) map.fitBounds(bounds, { padding: [8, 8] });
     } catch {
-      // ignore malformed geometries
+      // ignore malformed geometry
     }
   }, [geom, map]);
   return null;
 }
 
-function parseGeom(raw: any): GeoJSON.GeoJsonObject | null {
+// Try to parse Socrata geometry (object or JSON string)
+function parseGeom(raw: GeometryLike): GeoJsonObject | null {
   if (!raw) return null;
   try {
-    if (typeof raw === "string") return JSON.parse(raw);
-    return raw as GeoJSON.GeoJsonObject;
+    if (typeof raw === "string") return JSON.parse(raw) as GeoJsonObject;
+    return raw as GeoJsonObject;
   } catch {
     return null;
   }
 }
 
-// ✅ FIX: handle string OR object shapes for Traffic "point"
-function parseTrafficPoint(point: any): { lat?: string; lon?: string } {
+// Parse lon/lat from Traffic "point" (string or object)
+function parseTrafficPoint(point: PointLike): { lat?: string; lon?: string } {
   if (!point) return {};
   if (typeof point === "string") {
     // supports "POINT (lon lat)" or "(lon, lat)"
@@ -110,33 +123,35 @@ function parseTrafficPoint(point: any): { lat?: string; lon?: string } {
     const lat = nums[1];
     return { lat, lon };
   }
-  if (typeof point === "object") {
-    // GeoJSON-like: { type: "Point", coordinates: [lon, lat] }
-    if (Array.isArray(point.coordinates) && point.coordinates.length >= 2) {
-      const [lon, lat] = point.coordinates;
-      return { lat: String(lat), lon: String(lon) };
-    }
-    // Socrata location: { latitude, longitude }
-    if ("latitude" in point && "longitude" in point) {
-      return { lat: String(point.latitude), lon: String(point.longitude) };
-    }
+  // GeoJSON-like Point
+  if (Array.isArray(point.coordinates) && point.coordinates.length >= 2) {
+    const [lon, lat] = point.coordinates;
+    return { lat: String(lat), lon: String(lon) };
+  }
+  // Socrata location object
+  if (
+    typeof point.latitude !== "undefined" &&
+    typeof point.longitude !== "undefined"
+  ) {
+    return { lat: String(point.latitude), lon: String(point.longitude) };
   }
   return {};
 }
 
 // neighbourhood cache
 const neighbourhoodCache: Record<string, string> = {};
+
 async function fetchNeighbourhoodName(lat: string, lon: string): Promise<string> {
   const key = `${lat},${lon}`;
   if (neighbourhoodCache[key]) return neighbourhoodCache[key];
 
   const radius = 100;
-  const queries = [
+  const urls: ReadonlyArray<string> = [
     `${NEIGHBOURHOODS_URL}?$select=descriptive_name&$where=within_circle(the_geom,${lat},${lon},${radius})&$limit=1`,
     `${NEIGHBOURHOODS_URL}?$select=descriptive_name&$where=within_circle(geometry,${lat},${lon},${radius})&$limit=1`,
   ];
 
-  for (const url of queries) {
+  for (const url of urls) {
     try {
       const res = await fetch(url);
       if (!res.ok) continue;
@@ -147,7 +162,7 @@ async function fetchNeighbourhoodName(lat: string, lon: string): Promise<string>
         return name;
       }
     } catch {
-      // continue
+      // try next
     }
   }
   neighbourhoodCache[key] = NO_LOC;
@@ -156,25 +171,30 @@ async function fetchNeighbourhoodName(lat: string, lon: string): Promise<string>
 
 export default function ClosureList() {
   const [kind, setKind] = useState<DatasetKind>("trail"); // default: Trail
-  const [view, setView] = useState<ViewMode>("map");       // default: Map
-  const [rows, setRows] = useState<(TrailRow | TrafficRow)[]>([]);
+  const [view, setView] = useState<ViewMode>("map"); // default: Map
+  const [trailRows, setTrailRows] = useState<TrailRow[]>([]);
+  const [trafficRows, setTrafficRows] = useState<TrafficRow[]>([]);
   const [neighNames, setNeighNames] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(true);
 
+  // Load dataset
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
       try {
-        const url = kind === "trail" ? TRAIL_URL : TRAFFIC_URL;
-        const res = await fetch(url);
-        if (!res.ok) throw new Error("Failed to fetch data");
-        let data = (await res.json()) as (TrailRow | TrafficRow)[];
-
-        // ✅ normalize traffic coords from "point" if lat/lon missing
-        if (kind === "traffic") {
-          data = (data as TrafficRow[]).map((r) => {
+        if (kind === "trail") {
+          const res = await fetch(TRAIL_URL);
+          if (!res.ok) throw new Error("Failed to fetch trail data");
+          const data = (await res.json()) as TrailRow[];
+          if (!cancelled) setTrailRows(Array.isArray(data) ? data : []);
+        } else {
+          const res = await fetch(TRAFFIC_URL);
+          if (!res.ok) throw new Error("Failed to fetch traffic data");
+          let data = (await res.json()) as TrafficRow[];
+          // normalize traffic coords from "point" if lat/lon missing
+          data = data.map((r) => {
             let lat = r.latitude;
             let lon = r.longitude;
             if ((!lat || !lon) && r.point) {
@@ -186,12 +206,14 @@ export default function ClosureList() {
             }
             return { ...r, latitude: lat, longitude: lon };
           });
+          if (!cancelled) setTrafficRows(Array.isArray(data) ? data : []);
         }
-
-        if (!cancelled) setRows(Array.isArray(data) ? data : []);
       } catch (e) {
         console.error(e);
-        if (!cancelled) setRows([]);
+        if (!cancelled) {
+          if (kind === "trail") setTrailRows([]);
+          else setTrafficRows([]);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -202,10 +224,13 @@ export default function ClosureList() {
     };
   }, [kind]);
 
-  // neighbourhood lookups where location_name missing
+  // Collect neighbourhood lookups where location_name is missing
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
+      const rows: ReadonlyArray<TrailRow | TrafficRow> =
+        kind === "trail" ? trailRows : trafficRows;
+
       const todo: string[] = [];
       for (const r of rows) {
         const loc = (r.location_name || "").trim();
@@ -216,7 +241,7 @@ export default function ClosureList() {
           if (!neighNames[k]) todo.push(k);
         }
       }
-      const subset = todo.slice(0, 40);
+      const subset = todo.slice(0, 40); // rate-friendly
       const results = await Promise.all(
         subset.map(async (k) => {
           const [lat, lon] = k.split(",");
@@ -235,14 +260,14 @@ export default function ClosureList() {
     return () => {
       cancelled = true;
     };
-  }, [rows, neighNames]);
+  }, [kind, trailRows, trafficRows, neighNames]);
 
-  // dedupe + sort
-  const items = useMemo(() => {
-    const seen = new Set<string>();
-    const out: (TrailRow | TrafficRow)[] = [];
+  // Deduplicate + sort
+  const items: ReadonlyArray<TrailRow | TrafficRow> = useMemo(() => {
     if (kind === "trail") {
-      for (const r of rows as TrailRow[]) {
+      const seen = new Set<string>();
+      const out: TrailRow[] = [];
+      for (const r of trailRows) {
         const k = (r.details || "").trim().toLowerCase();
         if (!seen.has(k)) {
           seen.add(k);
@@ -250,11 +275,15 @@ export default function ClosureList() {
         }
       }
       out.sort((a, b) =>
-        (String((a as TrailRow).details || "")).toLowerCase()
-          .localeCompare(String((b as TrailRow).details || "").toLowerCase())
+        (String(a.details || "")).toLowerCase().localeCompare(
+          String(b.details || "").toLowerCase()
+        )
       );
+      return out;
     } else {
-      for (const r of rows as TrafficRow[]) {
+      const seen = new Set<string>();
+      const out: TrafficRow[] = [];
+      for (const r of trafficRows) {
         const k = (r.description || "").trim().toLowerCase();
         if (!seen.has(k)) {
           seen.add(k);
@@ -262,18 +291,16 @@ export default function ClosureList() {
         }
       }
       out.sort((a, b) =>
-        (String((a as TrafficRow).description || "")).toLowerCase()
-          .localeCompare(String((b as TrafficRow).description || "").toLowerCase())
+        (String(a.description || "")).toLowerCase().localeCompare(
+          String(b.description || "").toLowerCase()
+        )
       );
+      return out;
     }
-    return out;
-  }, [rows, kind]);
+  }, [kind, trailRows, trafficRows]);
 
   const toggleExpand = (key: string) =>
     setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
-
-  const truncate = (text: string, max = 220) =>
-    text.length > max ? text.slice(0, max).trim() + "…" : text;
 
   const heading =
     kind === "trail" ? "Trail Cautions and Closures Map" : "Traffic Disruptions Map";
@@ -295,8 +322,9 @@ export default function ClosureList() {
           </select>
 
           <div className="ml-4 flex items-center gap-2">
-          <span className={`text-sm ${view === "map" ? "font-semibold" : ""}`}>Map</span>
-
+            <span className={`text-sm ${view === "map" ? "font-semibold" : ""}`}>
+              Map
+            </span>
             <label className="relative inline-flex items-center cursor-pointer">
               <input
                 type="checkbox"
@@ -304,9 +332,11 @@ export default function ClosureList() {
                 checked={view === "list"}
                 onChange={(e) => setView(e.target.checked ? "list" : "map")}
               />
-              <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:bg-blue-600 after:content-[''] after:absolute after:top-[3px] after:left-[3px] after:bg-white after:h-5 after:w-5 after:rounded-full after:transition-all peer-checked:after:translate-x-5" />
+              <div className="w-11 h-6 bg-gray-300 rounded-full peer peer-checked:bg-blue-600 after:content-[''] after:absolute after:top-[3px] after:left-[3px] after:bg-white after:h-5 after:w-5 after:rounded-full after:transition-all peer-checked:after:translate-x-5" />
             </label>
-            <span className={`text-sm ${view === "list" ? "font-semibold" : ""}`}>List</span>
+            <span className={`text-sm ${view === "list" ? "font-semibold" : ""}`}>
+              List
+            </span>
           </div>
         </div>
       </div>
@@ -317,18 +347,26 @@ export default function ClosureList() {
           {kind === "trail" ? (
             <iframe
               allow="geolocation"
-              src="https://data.edmonton.ca/dataset/River-Valley-Trail-Cautions-and-Closures-Map/2kvx-xvgm/embed?width=full&height=600"
+              src="https://data.edmonton.ca/dataset/River-Valley-Trail-Cautions-and-Closures-Map/2kvx-xvgm/embed?width=800&height=600"
               width="100%"
-              height="600"
-              style={{ border: 0, padding: 0, margin: 0 }}
+              style={{
+                border: 0,
+                padding: 0,
+                margin: 0,
+                height: "calc(100vh - 64px)",
+              }}
             />
           ) : (
             <iframe
               allow="geolocation"
-              src="https://data.edmonton.ca/dataset/Traffic-Disruptions-Map/mhbf-f3zb/embed?width=full&height=600"
+              src="https://data.edmonton.ca/dataset/Traffic-Disruptions-Map/mhbf-f3zb/embed?width=800&height=600"
               width="100%"
-              height="600"
-              style={{ border: 0, padding: 0, margin: 0 }}
+              style={{
+                border: 0,
+                padding: 0,
+                margin: 0,
+                height: "calc(100vh - 64px)",
+              }}
             />
           )}
         </div>
@@ -354,21 +392,21 @@ export default function ClosureList() {
 
             const title = `${infra} – ${locDisplay}`;
             const endDisplay = r.end_date ? "N/A" : (r.duration || "N/A");
-            const geom = parseGeom((r as any).geometry || (r as any).the_geom);
+            const geom = parseGeom(r.geometry ?? r.the_geom);
 
             const isPermanent =
-              String((r as any).type_of_closure || "").toLowerCase() ===
-              "permanent";
+              String(r.type_of_closure || "").toLowerCase() === "permanent";
 
+            // Body text (details/description) with show more
             const longText =
-              (r as TrailRow).details ||
-              (r as TrafficRow).description ||
-              "";
+              (kind === "trail"
+                ? (r as TrailRow).details
+                : (r as TrafficRow).description) || "";
             const key = `${title}-${r.start_date ?? ""}-${idx}`;
             const isExpanded = !!expanded[key];
             const shown =
               !isExpanded && longText.length > 220
-                ? longText.slice(0, 220).trim() + "…"
+                ? `${longText.slice(0, 220).trim()}…`
                 : longText;
 
             return (
@@ -379,6 +417,7 @@ export default function ClosureList() {
                 } hover:border-2`}
                 title={title}
               >
+                {/* Tiny non-interactive map */}
                 <div className="w-full h-40">
                   {geom ? (
                     <MapContainer
@@ -431,20 +470,17 @@ export default function ClosureList() {
                   )}
                 </div>
 
+                {/* Card body */}
                 <div className="p-4 text-sm space-y-1">
                   <h2 className="text-base font-semibold">{title}</h2>
 
                   <p>
                     <strong>Activity Type:</strong>{" "}
-                    {(r as TrailRow).activity_type ||
-                      (r as TrafficRow).activity_type ||
-                      "N/A"}
+                    {r.activity_type || "N/A"}
                   </p>
                   <p>
                     <strong>Type of Closure:</strong>{" "}
-                    {(r as TrailRow).type_of_closure ||
-                      (r as TrafficRow).type_of_closure ||
-                      "N/A"}
+                    {r.type_of_closure || "N/A"}
                   </p>
                   <p>
                     <strong>Start Date:</strong> {formatStart(r.start_date)}
