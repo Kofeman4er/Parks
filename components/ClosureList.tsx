@@ -1,18 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  MapContainer,
-  TileLayer,
-  Marker,
-  GeoJSON,
-  useMap,
-} from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import L from "leaflet";
 import type { GeoJsonObject } from "geojson";
 
-// ---------- Types ----------
+/* =========================
+   Types
+========================= */
 type DatasetKind = "trail" | "traffic";
 type ViewMode = "map" | "list";
 
@@ -45,8 +39,6 @@ interface TrailRow extends BaseRow {
   activity_type?: string;
   type_of_closure?: string;
   details?: string;
-  // image_url exists but we render a map instead
-  image_url?: string;
 }
 
 interface TrafficRow extends BaseRow {
@@ -54,10 +46,12 @@ interface TrafficRow extends BaseRow {
   description?: string;
   activity_type?: string;
   type_of_closure?: string;
-  point?: PointLike; // can be string or object shapes
+  point?: PointLike; // string or object
 }
 
-// ---------- Constants ----------
+/* =========================
+   Constants
+========================= */
 const TRAIL_URL =
   "https://data.edmonton.ca/resource/k4mi-dkvi.json?$limit=500";
 
@@ -67,15 +61,9 @@ const TRAFFIC_URL =
 const NEIGHBOURHOODS_URL = "https://data.edmonton.ca/resource/3did-mjnj.json";
 const NO_LOC = "N/A";
 
-// Leaflet green pin
-const markerIcon = new L.Icon({
-  iconUrl:
-    "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png",
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-});
-
-// ---------- Helpers ----------
+/* =========================
+   Helpers (typed)
+========================= */
 function formatStart(raw?: string): string {
   if (!raw) return "N/A";
   const d = new Date(raw);
@@ -86,22 +74,6 @@ function formatStart(raw?: string): string {
   return `${yyyy}/${mm}/${dd}`;
 }
 
-function FitToGeometry({ geom }: { geom: GeoJsonObject }) {
-  const map = useMap();
-  useEffect(() => {
-    if (!geom) return;
-    try {
-      const layer = L.geoJSON(geom);
-      const bounds = layer.getBounds();
-      if (bounds.isValid()) map.fitBounds(bounds, { padding: [8, 8] });
-    } catch {
-      // ignore malformed geometry
-    }
-  }, [geom, map]);
-  return null;
-}
-
-// Try to parse Socrata geometry (object or JSON string)
 function parseGeom(raw: GeometryLike): GeoJsonObject | null {
   if (!raw) return null;
   try {
@@ -112,23 +84,20 @@ function parseGeom(raw: GeometryLike): GeoJsonObject | null {
   }
 }
 
-// Parse lon/lat from Traffic "point" (string or object)
+// Parse lon/lat from Traffic "point"
 function parseTrafficPoint(point: PointLike): { lat?: string; lon?: string } {
   if (!point) return {};
   if (typeof point === "string") {
-    // supports "POINT (lon lat)" or "(lon, lat)"
     const nums = point.match(/-?\d+(\.\d+)?/g);
     if (!nums || nums.length < 2) return {};
     const lon = nums[0];
     const lat = nums[1];
     return { lat, lon };
   }
-  // GeoJSON-like Point
   if (Array.isArray(point.coordinates) && point.coordinates.length >= 2) {
     const [lon, lat] = point.coordinates;
     return { lat: String(lat), lon: String(lon) };
   }
-  // Socrata location object
   if (
     typeof point.latitude !== "undefined" &&
     typeof point.longitude !== "undefined"
@@ -138,7 +107,7 @@ function parseTrafficPoint(point: PointLike): { lat?: string; lon?: string } {
   return {};
 }
 
-// neighbourhood cache
+/* neighbourhood cache */
 const neighbourhoodCache: Record<string, string> = {};
 
 async function fetchNeighbourhoodName(lat: string, lon: string): Promise<string> {
@@ -162,23 +131,52 @@ async function fetchNeighbourhoodName(lat: string, lon: string): Promise<string>
         return name;
       }
     } catch {
-      // try next
+      // continue
     }
   }
   neighbourhoodCache[key] = NO_LOC;
   return NO_LOC;
 }
 
+/* =========================
+   Component
+========================= */
 export default function ClosureList() {
-  const [kind, setKind] = useState<DatasetKind>("trail"); // default: Trail
-  const [view, setView] = useState<ViewMode>("map"); // default: Map
+  // dataset + view
+  const [kind, setKind] = useState<DatasetKind>("trail");
+  const [view, setView] = useState<ViewMode>("map");
+
+  // data
   const [trailRows, setTrailRows] = useState<TrailRow[]>([]);
   const [trafficRows, setTrafficRows] = useState<TrafficRow[]>([]);
   const [neighNames, setNeighNames] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Load dataset
+  // client-only map libs (avoid SSR window access)
+  const [rl, setRL] = useState<null | typeof import("react-leaflet")>(null);
+  const [leaflet, setLeaflet] = useState<null | typeof import("leaflet")>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMapLibs() {
+      if (typeof window === "undefined") return;
+      const [reactLeaflet, L] = await Promise.all([
+        import("react-leaflet"),
+        import("leaflet"),
+      ]);
+      if (!cancelled) {
+        setRL(reactLeaflet);
+        setLeaflet(L);
+      }
+    }
+    loadMapLibs();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // load dataset
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -193,7 +191,6 @@ export default function ClosureList() {
           const res = await fetch(TRAFFIC_URL);
           if (!res.ok) throw new Error("Failed to fetch traffic data");
           let data = (await res.json()) as TrafficRow[];
-          // normalize traffic coords from "point" if lat/lon missing
           data = data.map((r) => {
             let lat = r.latitude;
             let lon = r.longitude;
@@ -224,7 +221,7 @@ export default function ClosureList() {
     };
   }, [kind]);
 
-  // Collect neighbourhood lookups where location_name is missing
+  // neighbourhood lookups where location_name missing
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
@@ -241,7 +238,7 @@ export default function ClosureList() {
           if (!neighNames[k]) todo.push(k);
         }
       }
-      const subset = todo.slice(0, 40); // rate-friendly
+      const subset = todo.slice(0, 40);
       const results = await Promise.all(
         subset.map(async (k) => {
           const [lat, lon] = k.split(",");
@@ -262,7 +259,7 @@ export default function ClosureList() {
     };
   }, [kind, trailRows, trafficRows, neighNames]);
 
-  // Deduplicate + sort
+  // dedupe + sort
   const items: ReadonlyArray<TrailRow | TrafficRow> = useMemo(() => {
     if (kind === "trail") {
       const seen = new Set<string>();
@@ -305,6 +302,107 @@ export default function ClosureList() {
   const heading =
     kind === "trail" ? "Trail Cautions and Closures Map" : "Traffic Disruptions Map";
 
+  /* ======= Tiny Map Preview (client-only via dynamic import) ======= */
+  const MapPreview: React.FC<{
+    lat?: string;
+    lon?: string;
+    geom?: GeoJsonObject | null;
+  }> = ({ lat, lon, geom }) => {
+    if (!rl || !leaflet) {
+      // libs not ready yet — show a neutral placeholder box
+      return (
+        <div className="h-full w-full bg-gray-100 text-gray-400 flex items-center justify-center text-xs">
+          map…
+        </div>
+      );
+    }
+    const { MapContainer, TileLayer, Marker, GeoJSON, useMap } = rl;
+
+    const FitToGeometry: React.FC<{ g: GeoJsonObject }> = ({ g }) => {
+      const map = useMap();
+      useEffect(() => {
+        try {
+          const layer = leaflet.geoJSON(g);
+          const bounds = layer.getBounds();
+          if (bounds.isValid()) map.fitBounds(bounds, { padding: [8, 8] });
+        } catch {
+          /* ignore */
+        }
+      }, [g, map]);
+      return null;
+    };
+
+    // simple green icon
+    const icon = new leaflet.Icon({
+      iconUrl:
+        "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png",
+      iconSize: [25, 41],
+      iconAnchor: [12, 41],
+    });
+
+    if (geom) {
+      return (
+        <MapContainer
+          center={[53.5461, -113.4938]}
+          zoom={15}
+          scrollWheelZoom={false}
+          doubleClickZoom={false}
+          dragging={false}
+          touchZoom={false}
+          boxZoom={false}
+          keyboard={false}
+          zoomControl={false}
+          attributionControl={false}
+          className="h-full w-full"
+        >
+          <TileLayer
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution="&copy; OpenStreetMap contributors"
+          />
+          <GeoJSON data={geom} style={{ color: "#22c55e", weight: 2, fillOpacity: 0.2 }} />
+          <FitToGeometry g={geom} />
+        </MapContainer>
+      );
+    }
+
+    if (lat && lon) {
+      const latNum = Number(lat);
+      const lonNum = Number(lon);
+      if (Number.isFinite(latNum) && Number.isFinite(lonNum)) {
+        return (
+          <MapContainer
+            center={[latNum, lonNum]}
+            zoom={15}
+            scrollWheelZoom={false}
+            doubleClickZoom={false}
+            dragging={false}
+            touchZoom={false}
+            boxZoom={false}
+            keyboard={false}
+            zoomControl={false}
+            attributionControl={false}
+            className="h-full w-full"
+          >
+            <TileLayer
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              attribution="&copy; OpenStreetMap contributors"
+            />
+            <Marker position={[latNum, lonNum]} icon={icon} />
+          </MapContainer>
+        );
+      }
+    }
+
+    return (
+      <div className="h-full w-full bg-gray-100 text-gray-500 flex items-center justify-center text-sm">
+        {NO_LOC}
+      </div>
+    );
+  };
+
+  /* =========================
+     Render
+  ========================= */
   return (
     <div className="max-w-6xl mx-auto p-4">
       {/* header: dataset + view toggle */}
@@ -341,7 +439,7 @@ export default function ClosureList() {
         </div>
       </div>
 
-      {/* map view (iframes) */}
+      {/* map view (iframes, full-width, viewport-height) */}
       {view === "map" ? (
         <div className="w-full">
           {kind === "trail" ? (
@@ -372,12 +470,16 @@ export default function ClosureList() {
         </div>
       ) : loading ? (
         <p>Loading…</p>
-      ) : items.length === 0 ? (
-        <p>No records found.</p>
       ) : (
         // list view
         <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-          {items.map((r, idx) => {
+          {(
+            (kind === "trail" ? trailRows : trafficRows) as ReadonlyArray<
+              TrailRow | TrafficRow
+            >
+          ).map((r, idx) => {
+            // dedupe + sort already done in parent memo if you prefer; here keep simple render
+            // Build display fields
             const lat = (r.latitude || "").trim();
             const lon = (r.longitude || "").trim();
             const hasCoords = !!(lat && lon);
@@ -397,7 +499,6 @@ export default function ClosureList() {
             const isPermanent =
               String(r.type_of_closure || "").toLowerCase() === "permanent";
 
-            // Body text (details/description) with show more
             const longText =
               (kind === "trail"
                 ? (r as TrailRow).details
@@ -417,66 +518,17 @@ export default function ClosureList() {
                 } hover:border-2`}
                 title={title}
               >
-                {/* Tiny non-interactive map */}
+                {/* tiny non-interactive map (client-only) */}
                 <div className="w-full h-40">
-                  {geom ? (
-                    <MapContainer
-                      center={[53.5461, -113.4938]}
-                      zoom={15}
-                      scrollWheelZoom={false}
-                      doubleClickZoom={false}
-                      dragging={false}
-                      touchZoom={false}
-                      boxZoom={false}
-                      keyboard={false}
-                      zoomControl={false}
-                      attributionControl={false}
-                      className="h-full w-full"
-                    >
-                      <TileLayer
-                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                        attribution="&copy; OpenStreetMap contributors"
-                      />
-                      <GeoJSON
-                        data={geom}
-                        style={{ color: "#22c55e", weight: 2, fillOpacity: 0.2 }}
-                      />
-                      <FitToGeometry geom={geom} />
-                    </MapContainer>
-                  ) : hasCoords ? (
-                    <MapContainer
-                      center={[Number(lat), Number(lon)]}
-                      zoom={15}
-                      scrollWheelZoom={false}
-                      doubleClickZoom={false}
-                      dragging={false}
-                      touchZoom={false}
-                      boxZoom={false}
-                      keyboard={false}
-                      zoomControl={false}
-                      attributionControl={false}
-                      className="h-full w-full"
-                    >
-                      <TileLayer
-                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                        attribution="&copy; OpenStreetMap contributors"
-                      />
-                      <Marker position={[Number(lat), Number(lon)]} icon={markerIcon} />
-                    </MapContainer>
-                  ) : (
-                    <div className="h-full w-full flex items-center justify-center bg-gray-100 text-gray-500 text-sm">
-                      {NO_LOC}
-                    </div>
-                  )}
+                  <MapPreview lat={lat} lon={lon} geom={geom} />
                 </div>
 
-                {/* Card body */}
+                {/* card body */}
                 <div className="p-4 text-sm space-y-1">
                   <h2 className="text-base font-semibold">{title}</h2>
 
                   <p>
-                    <strong>Activity Type:</strong>{" "}
-                    {r.activity_type || "N/A"}
+                    <strong>Activity Type:</strong> {r.activity_type || "N/A"}
                   </p>
                   <p>
                     <strong>Type of Closure:</strong>{" "}
